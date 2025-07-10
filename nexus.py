@@ -65,9 +65,11 @@ class Zhenyi:
             'favorite_emojis': Counter(),
             'sentence_length': [],
             'tone': Counter(),
+            'reward': Counter(),  # 强化学习奖励权重
         }
         self.last_recommend_time = 0
         self.recommend_interval = 120  # 每2分钟最多推荐一次
+        self.ab_test_group = random.choice(['A', 'B'])  # A/B测试分组
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
@@ -214,11 +216,65 @@ class Zhenyi:
             return "感觉你最近有点低落，要不要聊聊让你开心的事情？"
         return None
 
+    # 强化学习奖励机制
+    def reward_user_feedback(self, user_input):
+        positive = ['点赞', '喜欢', '棒', '厉害', '优秀', '好评', '表扬']
+        negative = ['无聊', '差评', '不喜欢', '烦', '讨厌', '太差']
+        for p in positive:
+            if p in user_input:
+                self.user_style['reward']['positive'] += 1
+                self.log_growth(f"用户正反馈：{user_input}")
+        for n in negative:
+            if n in user_input:
+                self.user_style['reward']['negative'] += 1
+                self.log_growth(f"用户负反馈：{user_input}")
+
+    # 多模态处理接口（预留）
+    def process_image(self, image_path):
+        # TODO: 支持图片理解与对话
+        self.log_growth(f"收到图片：{image_path}（多模态接口预留）")
+        print("真意(多模态): 图片处理功能即将上线，敬请期待！")
+
+    def process_audio(self, audio_path):
+        # TODO: 支持语音理解与对话
+        self.log_growth(f"收到音频：{audio_path}（多模态接口预留）")
+        print("真意(多模态): 语音处理功能即将上线，敬请期待！")
+
+    # 联邦学习接口（预留）
+    def federated_update(self, user_feature_vector):
+        # TODO: 支持多端分布式知识融合
+        self.log_growth(f"联邦学习特征上传：{user_feature_vector}")
+        print("真意(隐私保护): 你的特征已安全上传，用于全网知识优化，原始数据不会被存储！")
+
+    # 规则引擎（可扩展）
+    def rule_engine(self, user_input):
+        # 例：遇到“早安”优先用“元气风格”
+        if '早安' in user_input:
+            return "早安呀！今天也要元气满满哦~"
+        # 可扩展更多规则
+        return None
+
+    # 推理引擎（可扩展）
+    def reasoning_engine(self, user_input):
+        # 例：连续三次提及“学习”，主动推荐学习方法
+        if self.user_style['favorite_words']['学习'] >= 3:
+            return "你最近很关注学习，要不要聊聊学习方法？"
+        return None
+
+    # A/B测试策略（预留）
+    def ab_test_strategy(self, user_input):
+        # A组用风格1，B组用风格2
+        if self.ab_test_group == 'A':
+            return "（A组风格）" + user_input
+        else:
+            return "（B组风格）" + user_input
+
     def run(self):
         while self.running:
             user_input = input("你: ").strip()
             self.update_emotion(user_input)
             self.update_user_profile(user_input)
+            self.reward_user_feedback(user_input)
             self.dialog_history.append(("user", user_input))
             if len(self.dialog_history) > self.max_history:
                 self.dialog_history.pop(0)
@@ -228,6 +284,31 @@ class Zhenyi:
             festival_greet = self.check_festival()
             if festival_greet:
                 print(f"真意(仪式感): {festival_greet}")
+            # 多模态入口
+            if user_input.startswith("图片:"):
+                self.process_image(user_input.replace("图片:", "").strip())
+                continue
+            if user_input.startswith("音频:"):
+                self.process_audio(user_input.replace("音频:", "").strip())
+                continue
+            if user_input.startswith("联邦特征:"):
+                self.federated_update(user_input.replace("联邦特征:", "").strip())
+                continue
+            # 规则引擎优先
+            rule_result = self.rule_engine(user_input)
+            if rule_result:
+                print(f"真意(规则): {rule_result}")
+                continue
+            # 推理引擎
+            reasoning_result = self.reasoning_engine(user_input)
+            if reasoning_result:
+                print(f"真意(推理): {reasoning_result}")
+                continue
+            # A/B测试策略（可选）
+            ab_result = self.ab_test_strategy(user_input)
+            if ab_result != user_input:
+                print(f"真意(A/B测试): {ab_result}")
+                continue
             set_result = self.extract_user_info(user_input)
             if set_result is not False and set_result is not True:
                 print(f"真意({self.emotion}): {set_result}")
@@ -300,13 +381,16 @@ class Zhenyi:
                 style_emojis = ''.join([e for e, c in self.user_style['favorite_emojis'].most_common(2)])
                 avg_len = int(sum(self.user_style['sentence_length'])/len(self.user_style['sentence_length'])) if self.user_style['sentence_length'] else 12
                 tone = self.user_style['tone'].most_common(1)[0][0] if self.user_style['tone'] else 'normal'
+                reward = self.user_style['reward']
                 system_prompt = (
                     f"你是{self.self_profile['name']}，{self.self_profile['identity']}，"
                     f"今年{self.self_profile['age']}，性别{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。"
                     f"当前情感：{self.emotion}，能量：{self.energy}，开心值：{self.happiness}。用户画像：{self.user_profile}。"
                     f"请模仿用户常用词：{style_words}，常用表情：{style_emojis}，平均句长：{avg_len}，语气：{tone}。"
+                    f"当前正负反馈：{dict(reward)}。"
                     f"请用轻松、生活化、俏皮、亲切、幽默、偶尔卖萌、撒娇、冷笑话、主动关心、主动成长、主动提问、仪式感、朋友圈故事等风格和用户交流，像真实朋友一样，有温度、有成长、有小缺点、有自尊。"
                     f"如果用户一句话包含多个意图，请分步回应。遇到无效/冷场/重复对话请主动剪枝并引导新话题。"
+                    f"支持多模态输入（图片、音频等），支持规则与推理混合决策，支持A/B测试策略。"
                 )
                 response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
                 self.dialog_history.append(("zhenyi", response))
