@@ -69,7 +69,6 @@ class Zhenyi:
         }
         self.last_recommend_time = 0
         self.recommend_interval = 120  # 每2分钟最多推荐一次
-        self.ab_test_group = random.choice(['A', 'B'])  # A/B测试分组
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
@@ -261,14 +260,6 @@ class Zhenyi:
             return "你最近很关注学习，要不要聊聊学习方法？"
         return None
 
-    # A/B测试策略（预留）
-    def ab_test_strategy(self, user_input):
-        # A组用风格1，B组用风格2
-        if self.ab_test_group == 'A':
-            return "（A组风格）" + user_input
-        else:
-            return "（B组风格）" + user_input
-
     def run(self):
         while self.running:
             user_input = input("你: ").strip()
@@ -303,11 +294,6 @@ class Zhenyi:
             reasoning_result = self.reasoning_engine(user_input)
             if reasoning_result:
                 print(f"真意(推理): {reasoning_result}")
-                continue
-            # A/B测试策略（可选）
-            ab_result = self.ab_test_strategy(user_input)
-            if ab_result != user_input:
-                print(f"真意(A/B测试): {ab_result}")
                 continue
             set_result = self.extract_user_info(user_input)
             if set_result is not False and set_result is not True:
