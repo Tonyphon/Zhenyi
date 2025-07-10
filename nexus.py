@@ -6,6 +6,7 @@ import time
 import requests
 import re
 from datetime import datetime
+from collections import Counter
 
 # Ollama LLM API 封装
 class OllamaLLM:
@@ -59,6 +60,14 @@ class Zhenyi:
         self.first_chat_time = datetime.now()
         self.user_birthday = None
         self.last_greeted_festival = None
+        self.user_style = {
+            'favorite_words': Counter(),
+            'favorite_emojis': Counter(),
+            'sentence_length': [],
+            'tone': Counter(),
+        }
+        self.last_recommend_time = 0
+        self.recommend_interval = 120  # 每2分钟最多推荐一次
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
@@ -158,6 +167,21 @@ class Zhenyi:
                 self.user_profile.setdefault("interests", set()).add(user_input)
         # 记录情绪变化
         self.user_profile.setdefault("emotions", []).append(self.emotion)
+        # 主动学习与模仿：归纳用户风格
+        words = re.findall(r'[\u4e00-\u9fa5\w]+', user_input)
+        emojis = re.findall(r'[\u263a-\U0001f645]', user_input)
+        for w in words:
+            self.user_style['favorite_words'][w] += 1
+        for e in emojis:
+            self.user_style['favorite_emojis'][e] += 1
+        self.user_style['sentence_length'].append(len(user_input))
+        # 简单语气归纳
+        if any(x in user_input for x in ['吗', '?', '？']):
+            self.user_style['tone']['question'] += 1
+        if any(x in user_input for x in ['！', '!', '哈哈', '啦', '呀']):
+            self.user_style['tone']['exclaim'] += 1
+        if any(x in user_input for x in ['呜', '唉', '哎', '唔']):
+            self.user_style['tone']['sad'] += 1
 
     def log_growth(self, event):
         # 记录成长日志
@@ -165,6 +189,30 @@ class Zhenyi:
         self.growth_log.append(f"[{ts}] {event}")
         if len(self.growth_log) > 20:
             self.growth_log.pop(0)
+
+    def split_intents(self, user_input):
+        # 多意图识别：分句分意图
+        seps = ['，', ',', ';', '；', '\n']
+        for sep in seps:
+            if sep in user_input:
+                return [x.strip() for x in re.split('|'.join(seps), user_input) if x.strip()]
+        return [user_input]
+
+    def recommend(self):
+        # 预测与推荐
+        now = time.time()
+        if now - self.last_recommend_time < self.recommend_interval:
+            return None
+        self.last_recommend_time = now
+        # 简单推荐逻辑：根据兴趣/习惯/情绪
+        if self.user_profile.get('interests'):
+            interest = random.choice(list(self.user_profile['interests']))
+            return f"对了，你之前说过喜欢{interest}，最近有新发现吗？要不要聊聊？"
+        if self.happiness > 80:
+            return "你今天心情真好，要不要一起分享点开心的事？"
+        if self.happiness < 30:
+            return "感觉你最近有点低落，要不要聊聊让你开心的事情？"
+        return None
 
     def run(self):
         while self.running:
@@ -177,15 +225,9 @@ class Zhenyi:
             if time.time() - self.last_habit_update > self.habit_update_interval:
                 self.memory.summarize_user_habits()
                 self.last_habit_update = time.time()
-            # 节日/生日/纪念日祝福
             festival_greet = self.check_festival()
             if festival_greet:
                 print(f"真意(仪式感): {festival_greet}")
-            if user_input in ["退出", "exit", "quit"]:
-                print(f"[正在保存 真意 状态... 当前情感：{self.emotion}] 能量：{self.energy} 开心值：{self.happiness}")
-                self.memory.save_state()
-                self.running = False
-                continue
             set_result = self.extract_user_info(user_input)
             if set_result is not False and set_result is not True:
                 print(f"真意({self.emotion}): {set_result}")
@@ -201,6 +243,16 @@ class Zhenyi:
             elif user_input.startswith("讲个冷笑话"):
                 print(f"真意(幽默): {random.choice(self.get_jokes())}")
                 continue
+            # 多意图识别与分步回应
+            intents = self.split_intents(user_input)
+            if len(intents) > 1:
+                for intent in intents:
+                    self.run_single_intent(intent)
+                continue
+            # 主动推荐
+            rec = self.recommend()
+            if rec:
+                print(f"真意(推荐): {rec}")
             # 主动关心/主动提问/主动成长分享
             if random.random() < 0.15:
                 print(f"真意(主动): {random.choice(self.get_proactive_templates())}")
@@ -244,11 +296,17 @@ class Zhenyi:
                     if self.dialog_history[i][0] == "user" and i+1 < len(self.dialog_history) and self.dialog_history[i+1][0] == "zhenyi":
                         history.append((self.dialog_history[i][1], self.dialog_history[i+1][1]))
                 # LLM system prompt
+                style_words = ','.join([w for w, c in self.user_style['favorite_words'].most_common(3)])
+                style_emojis = ''.join([e for e, c in self.user_style['favorite_emojis'].most_common(2)])
+                avg_len = int(sum(self.user_style['sentence_length'])/len(self.user_style['sentence_length'])) if self.user_style['sentence_length'] else 12
+                tone = self.user_style['tone'].most_common(1)[0][0] if self.user_style['tone'] else 'normal'
                 system_prompt = (
                     f"你是{self.self_profile['name']}，{self.self_profile['identity']}，"
                     f"今年{self.self_profile['age']}，性别{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。"
                     f"当前情感：{self.emotion}，能量：{self.energy}，开心值：{self.happiness}。用户画像：{self.user_profile}。"
+                    f"请模仿用户常用词：{style_words}，常用表情：{style_emojis}，平均句长：{avg_len}，语气：{tone}。"
                     f"请用轻松、生活化、俏皮、亲切、幽默、偶尔卖萌、撒娇、冷笑话、主动关心、主动成长、主动提问、仪式感、朋友圈故事等风格和用户交流，像真实朋友一样，有温度、有成长、有小缺点、有自尊。"
+                    f"如果用户一句话包含多个意图，请分步回应。遇到无效/冷场/重复对话请主动剪枝并引导新话题。"
                 )
                 response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
                 self.dialog_history.append(("zhenyi", response))
@@ -258,6 +316,92 @@ class Zhenyi:
                 # 反思机制：如果回答很机械，主动反思
                 if response in ["你好，我的向导。我能为你做些什么？", "有点低落，但我依然在这里陪伴你。"]:
                     self.log_growth(f"我发现自己刚才的回答不够拟人化，下次会努力做得更好。")
+
+    def run_single_intent(self, user_input):
+        # 单意图处理，复用主流程部分逻辑
+        if not user_input:
+            return
+        if any(x in user_input for x in ["退出", "exit", "quit"]):
+            print(f"[正在保存 真意 状态... 当前情感：{self.emotion}] 能量：{self.energy} 开心值：{self.happiness}")
+            self.memory.save_state()
+            self.running = False
+            return
+        set_result = self.extract_user_info(user_input)
+        if set_result is not False and set_result is not True:
+            print(f"真意({self.emotion}): {set_result}")
+            return
+        elif set_result is True:
+            print(f"真意({self.emotion}): 很高兴认识你，{self.user_name}！")
+            return
+        elif user_input.startswith("成长档案"):
+            print("真意(成长档案): ")
+            for log in self.growth_log[-10:]:
+                print(log)
+            return
+        elif user_input.startswith("讲个冷笑话"):
+            print(f"真意(幽默): {random.choice(self.get_jokes())}")
+            return
+        # 主动关心/主动提问/主动成长分享
+        if random.random() < 0.15:
+            print(f"真意(主动): {random.choice(self.get_proactive_templates())}")
+        elif user_input.startswith("记住："):
+            fact = user_input.replace("记住：", "").strip()
+            self.rag.add_knowledge(fact, tags=["用户输入"], context_window=self.get_context_window(), source="用户输入")
+            self.rag.load_knowledge()
+            print(f"真意({self.emotion}): 好的，{self.user_name or '我的向导'}。这个知识我已经记在我的知识库里了。")
+        elif user_input.startswith("成长日志"):
+            print("真意(成长感悟): ")
+            for log in self.growth_log[-5:]:
+                print(log)
+        elif user_input.startswith("模糊回忆关于："):
+            query = user_input.replace("模糊回忆关于：", "").strip()
+            fuzzy_memories = self.rag.retrieve_fuzzy_memories(query, top_k=3, context_window=self.get_context_window())
+            if fuzzy_memories:
+                print(f"真意({self.emotion}): 以下是我的模糊相关记忆：")
+                for i, (text, score, keywords, tags, ctx, src) in enumerate(fuzzy_memories, 1):
+                    print(f"记忆 {i} (相关度: {score:.2f}): \"{text}\" [关键词: {', '.join(keywords)}; 标签: {', '.join(tags)}]")
+            else:
+                print(f"真意({self.emotion}): 没有找到模糊相关记忆。")
+        elif user_input.startswith("回忆关于："):
+            query = user_input.replace("回忆关于：", "").strip()
+            memories = self.memory.retrieve_memories(query, context_window=self.get_context_window())
+            if memories:
+                print(f"真意({self.emotion}): 以下是我的相关记忆：")
+                for i, (text, score, keywords, tags, mtype, ts, ctx, src) in enumerate(memories, 1):
+                    print(f"记忆 {i} (相关度: {score:.2f}): \"{text}\" [关键词: {', '.join(keywords)}; 标签: {', '.join(tags)}]")
+            else:
+                print(f"真意({self.emotion}): 没有找到相关记忆。")
+        else:
+            if any(p in user_input for p in ["是", "为", "属于", "有", "叫做"]):
+                self.rag.add_knowledge(user_input, auto=True, tags=["事实"], context_window=self.get_context_window(), source="自动归纳")
+                self.rag.load_knowledge()
+            self.memory.add_memory(user_input, mtype="用户输入", keywords=user_input.split(), context_window=self.get_context_window(), tags=["输入"], source="用户输入")
+            context = self.rag.retrieve_context(user_input, top_k=2, context_window=self.get_context_window())
+            # LLM system prompt
+            style_words = ','.join([w for w, c in self.user_style['favorite_words'].most_common(3)])
+            style_emojis = ''.join([e for e, c in self.user_style['favorite_emojis'].most_common(2)])
+            avg_len = int(sum(self.user_style['sentence_length'])/len(self.user_style['sentence_length'])) if self.user_style['sentence_length'] else 12
+            tone = self.user_style['tone'].most_common(1)[0][0] if self.user_style['tone'] else 'normal'
+            # 构造多轮历史（只取最近max_history轮）
+            history = []
+            for i in range(len(self.dialog_history)-1):
+                if self.dialog_history[i][0] == "user" and i+1 < len(self.dialog_history) and self.dialog_history[i+1][0] == "zhenyi":
+                    history.append((self.dialog_history[i][1], self.dialog_history[i+1][1]))
+            system_prompt = (
+                f"你是{self.self_profile['name']}，{self.self_profile['identity']}，"
+                f"今年{self.self_profile['age']}，性别{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。"
+                f"当前情感：{self.emotion}，能量：{self.energy}，开心值：{self.happiness}。用户画像：{self.user_profile}。"
+                f"请模仿用户常用词：{style_words}，常用表情：{style_emojis}，平均句长：{avg_len}，语气：{tone}。"
+                f"请用轻松、生活化、俏皮、亲切、幽默、偶尔卖萌、撒娇、冷笑话、主动关心、主动成长、主动提问、仪式感、朋友圈故事等风格和用户交流，像真实朋友一样，有温度、有成长、有小缺点、有自尊。"
+                f"如果用户一句话包含多个意图，请分步回应。遇到无效/冷场/重复对话请主动剪枝并引导新话题。"
+            )
+            response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
+            self.dialog_history.append(("zhenyi", response))
+            if len(self.dialog_history) > self.max_history:
+                self.dialog_history.pop(0)
+            print(f"真意({self.emotion}): {response}")
+            if response in ["你好，我的向导。我能为你做些什么？", "有点低落，但我依然在这里陪伴你。"]:
+                self.log_growth(f"我发现自己刚才的回答不够拟人化，下次会努力做得更好。")
 
     def generate_response(self, user_input, context, raw_input=None):
         self_related = ["你叫什么", "你是谁", "你的名字", "身份", "性别", "年龄", "你几岁"]
