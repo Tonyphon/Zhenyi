@@ -3,6 +3,33 @@ from memory_module import MemoryModule
 from enhanced_rag_module import EnhancedRAGModule
 import random
 import time
+import requests
+
+# Ollama LLM API 封装
+class OllamaLLM:
+    def __init__(self, base_url="http://localhost:11434", model="qwen:7b"):
+        self.base_url = base_url
+        self.model = model
+
+    def generate(self, prompt, system_prompt=None, history=None, temperature=0.7, max_tokens=512):
+        # 拼接多轮历史
+        if history:
+            history_text = "\n".join([f"用户: {h[0]}\n真意: {h[1]}" for h in history])
+            prompt = f"{history_text}\n用户: {prompt}\n真意:"
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+        resp = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=60)
+        resp.raise_for_status()
+        return resp.json().get("response", "")
 
 class Zhenyi:
     def __init__(self):
@@ -24,6 +51,7 @@ class Zhenyi:
         self.last_habit_update = time.time()
         self.habit_update_interval = 60
         self.growth_log = []  # 新增：成长日志
+        self.llm = OllamaLLM()
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
@@ -131,7 +159,15 @@ class Zhenyi:
                     self.rag.load_knowledge()
                 self.memory.add_memory(user_input, mtype="用户输入", keywords=user_input.split(), context_window=self.get_context_window(), tags=["输入"], source="用户输入")
                 context = self.rag.retrieve_context(user_input, top_k=2, context_window=self.get_context_window())
-                response = self.generate_response(user_input, context, user_input)
+                # 用Ollama LLM生成自然语言回复
+                # 构造多轮历史（只取最近max_history轮）
+                history = []
+                for i in range(len(self.dialog_history)-1):
+                    if self.dialog_history[i][0] == "user" and i+1 < len(self.dialog_history) and self.dialog_history[i+1][0] == "zhenyi":
+                        history.append((self.dialog_history[i][1], self.dialog_history[i+1][1]))
+                # 系统提示词可包含自我设定、情感、用户画像等
+                system_prompt = f"你是{self.self_profile['name']}，{self.self_profile['identity']}，性格{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。当前情感：{self.emotion}。用户画像：{self.user_profile}。请用自然、拟人化、共情的语气回答。"
+                response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
                 self.dialog_history.append(("zhenyi", response))
                 if len(self.dialog_history) > self.max_history:
                     self.dialog_history.pop(0)
