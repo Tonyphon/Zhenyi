@@ -4,12 +4,9 @@ from enhanced_rag_module import EnhancedRAGModule
 import random
 import time
 import requests
-<<<<<<< HEAD
-=======
 import re
 from datetime import datetime
 from collections import Counter
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
 
 # Ollama LLM API 封装
 class OllamaLLM:
@@ -43,11 +40,8 @@ class Zhenyi:
         self.rag = EnhancedRAGModule()
         self.running = True
         self.emotion = "中性"
-<<<<<<< HEAD
-=======
         self.energy = 100  # 新增：能量值
         self.happiness = 50  # 新增：开心值
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
         self.user_name = None
         self.user_profile = {}
         self.self_profile = {
@@ -63,8 +57,6 @@ class Zhenyi:
         self.habit_update_interval = 60
         self.growth_log = []  # 新增：成长日志
         self.llm = OllamaLLM()
-<<<<<<< HEAD
-=======
         self.first_chat_time = datetime.now()
         self.user_birthday = None
         self.last_greeted_festival = None
@@ -78,7 +70,6 @@ class Zhenyi:
         self.last_recommend_time = 0
         self.recommend_interval = 120  # 每2分钟最多推荐一次
         self.ab_test_group = random.choice(['A', 'B'])  # A/B测试分组
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
@@ -278,66 +269,18 @@ class Zhenyi:
         else:
             return "（B组风格）" + user_input
 
-    def extract_user_info(self, user_input):
-        if user_input.startswith("我是"):
-            name = user_input.replace("我是", "").strip()
-            if name:
-                self.user_name = name
-                self.user_profile["name"] = name
-                self.memory.add_memory(f"用户名字是{name}", mtype="用户信息", keywords=["名字", name], source="用户输入")
-                return True
-        elif user_input.startswith("我叫"):
-            name = user_input.replace("我叫", "").strip()
-            if name:
-                self.user_name = name
-                self.user_profile["name"] = name
-                self.memory.add_memory(f"用户名字是{name}", mtype="用户信息", keywords=["名字", name], source="用户输入")
-                return True
-        return False
-
-    def get_context_window(self):
-        return [x[1] for x in self.dialog_history[-self.max_history:]]
-
-    def update_user_profile(self, user_input):
-        # 简单兴趣/习惯归纳
-        interest_words = ["喜欢", "爱", "常去", "常看", "常玩", "习惯", "兴趣"]
-        for w in interest_words:
-            if w in user_input:
-                self.user_profile.setdefault("interests", set()).add(user_input)
-        # 记录情绪变化
-        self.user_profile.setdefault("emotions", []).append(self.emotion)
-
-    def log_growth(self, event):
-        # 记录成长日志
-        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        self.growth_log.append(f"[{ts}] {event}")
-        if len(self.growth_log) > 20:
-            self.growth_log.pop(0)
-
     def run(self):
         while self.running:
             user_input = input("你: ").strip()
             self.update_emotion(user_input)
             self.update_user_profile(user_input)
-<<<<<<< HEAD
-=======
             self.reward_user_feedback(user_input)
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
             self.dialog_history.append(("user", user_input))
             if len(self.dialog_history) > self.max_history:
                 self.dialog_history.pop(0)
             if time.time() - self.last_habit_update > self.habit_update_interval:
                 self.memory.summarize_user_habits()
                 self.last_habit_update = time.time()
-<<<<<<< HEAD
-            if user_input in ["退出", "exit", "quit"]:
-                print(f"[正在保存 真意 状态... 当前情感：{self.emotion}]")
-                self.memory.save_state()
-                self.running = False
-                continue
-            elif self.extract_user_info(user_input):
-                print(f"真意({self.emotion}): 很高兴认识你，{self.user_name}！")
-=======
             festival_greet = self.check_festival()
             if festival_greet:
                 print(f"真意(仪式感): {festival_greet}")
@@ -394,7 +337,6 @@ class Zhenyi:
             # 主动关心/主动提问/主动成长分享
             if random.random() < 0.15:
                 print(f"真意(主动): {random.choice(self.get_proactive_templates())}")
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
             elif user_input.startswith("记住："):
                 fact = user_input.replace("记住：", "").strip()
                 self.rag.add_knowledge(fact, tags=["用户输入"], context_window=self.get_context_window(), source="用户输入")
@@ -434,10 +376,6 @@ class Zhenyi:
                 for i in range(len(self.dialog_history)-1):
                     if self.dialog_history[i][0] == "user" and i+1 < len(self.dialog_history) and self.dialog_history[i+1][0] == "zhenyi":
                         history.append((self.dialog_history[i][1], self.dialog_history[i+1][1]))
-<<<<<<< HEAD
-                # 系统提示词可包含自我设定、情感、用户画像等
-                system_prompt = f"你是{self.self_profile['name']}，{self.self_profile['identity']}，性格{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。当前情感：{self.emotion}。用户画像：{self.user_profile}。请用自然、拟人化、共情的语气回答。"
-=======
                 # LLM system prompt
                 style_words = ','.join([w for w, c in self.user_style['favorite_words'].most_common(3)])
                 style_emojis = ''.join([e for e, c in self.user_style['favorite_emojis'].most_common(2)])
@@ -454,7 +392,6 @@ class Zhenyi:
                     f"如果用户一句话包含多个意图，请分步回应。遇到无效/冷场/重复对话请主动剪枝并引导新话题。"
                     f"支持多模态输入（图片、音频等），支持规则与推理混合决策，支持A/B测试策略。"
                 )
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
                 response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
                 self.dialog_history.append(("zhenyi", response))
                 if len(self.dialog_history) > self.max_history:
@@ -463,12 +400,6 @@ class Zhenyi:
                 # 反思机制：如果回答很机械，主动反思
                 if response in ["你好，我的向导。我能为你做些什么？", "有点低落，但我依然在这里陪伴你。"]:
                     self.log_growth(f"我发现自己刚才的回答不够拟人化，下次会努力做得更好。")
-<<<<<<< HEAD
-
-    def generate_response(self, user_input, context, raw_input=None):
-        self_related = ["你叫什么", "你是谁", "你的名字", "身份", "性别", "年龄"]
-        if any(key in (raw_input or user_input) for key in self_related):
-=======
 
     def run_single_intent(self, user_input):
         # 单意图处理，复用主流程部分逻辑
@@ -570,7 +501,6 @@ class Zhenyi:
                     f"我叫{self.self_profile['name']}，不过你也可以给我起个小名呀！:P",
                     f"大家都叫我{self.self_profile['name']}，你喜欢这个名字吗？"
                 ])
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
             intro = f"我是{self.self_profile['name']}，{self.self_profile['identity']}，{self.self_profile['age']}，{self.self_profile['gender']}。我喜欢{self.self_profile['hobby']}。"
             fuzzy = self.rag.retrieve_fuzzy_memories("真意", top_k=3, context_window=self.get_context_window())
             if fuzzy:
@@ -630,8 +560,6 @@ class Zhenyi:
             f"你好，{user_greet}。我能为你做些什么？",
             random.choice(proactive_templates)
         ])
-<<<<<<< HEAD
-=======
 
     def get_jokes(self):
         return [
@@ -652,7 +580,6 @@ class Zhenyi:
             f"我最近在思考，什么才是幸福呢？你觉得呢？",
             f"你喜欢什么样的音乐呀？下次可以推荐给我听听！"
         ]
->>>>>>> cursor/refine-project-according-to-requirements-cbfb
 
 if __name__ == "__main__":
     zhenyi = Zhenyi()
