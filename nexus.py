@@ -22,25 +22,26 @@ class Zhenyi:
         self.dialog_history = []
         self.max_history = 5
         self.last_habit_update = time.time()
-        self.habit_update_interval = 60  # 每60秒归纳一次用户习惯
+        self.habit_update_interval = 60
+        self.growth_log = []  # 新增：成长日志
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
-        happy_words = ["开心", "高兴", "快乐", "谢谢", "赞"]
-        sad_words = ["难过", "伤心", "失落", "沮丧", "烦"]
-        angry_words = ["生气", "愤怒", "气愤"]
-        for w in happy_words:
-            if w in user_input:
-                self.emotion = "愉快"
-                return
-        for w in sad_words:
-            if w in user_input:
-                self.emotion = "低落"
-                return
-        for w in angry_words:
-            if w in user_input:
-                self.emotion = "愤怒"
-                return
+        # 更细腻的情感识别
+        emotion_map = {
+            "愉快": ["开心", "高兴", "快乐", "谢谢", "赞", "棒", "喜欢"],
+            "低落": ["难过", "伤心", "失落", "沮丧", "烦", "无聊", "孤独"],
+            "愤怒": ["生气", "愤怒", "气愤", "讨厌"],
+            "惊讶": ["惊讶", "震惊", "不可思议"],
+            "关心": ["担心", "关心", "在意"],
+            "幽默": ["哈哈", "笑死", "有趣", "搞笑"],
+            "鼓励": ["加油", "支持", "鼓励", "相信你"]
+        }
+        for emo, words in emotion_map.items():
+            for w in words:
+                if w in user_input:
+                    self.emotion = emo
+                    return
         self.emotion = "中性"
 
     def extract_user_info(self, user_input):
@@ -61,17 +62,32 @@ class Zhenyi:
         return False
 
     def get_context_window(self):
-        # 返回最近N轮对话内容
         return [x[1] for x in self.dialog_history[-self.max_history:]]
+
+    def update_user_profile(self, user_input):
+        # 简单兴趣/习惯归纳
+        interest_words = ["喜欢", "爱", "常去", "常看", "常玩", "习惯", "兴趣"]
+        for w in interest_words:
+            if w in user_input:
+                self.user_profile.setdefault("interests", set()).add(user_input)
+        # 记录情绪变化
+        self.user_profile.setdefault("emotions", []).append(self.emotion)
+
+    def log_growth(self, event):
+        # 记录成长日志
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        self.growth_log.append(f"[{ts}] {event}")
+        if len(self.growth_log) > 20:
+            self.growth_log.pop(0)
 
     def run(self):
         while self.running:
             user_input = input("你: ").strip()
             self.update_emotion(user_input)
+            self.update_user_profile(user_input)
             self.dialog_history.append(("user", user_input))
             if len(self.dialog_history) > self.max_history:
                 self.dialog_history.pop(0)
-            # 定期主动归纳用户习惯
             if time.time() - self.last_habit_update > self.habit_update_interval:
                 self.memory.summarize_user_habits()
                 self.last_habit_update = time.time()
@@ -87,6 +103,10 @@ class Zhenyi:
                 self.rag.add_knowledge(fact, tags=["用户输入"], context_window=self.get_context_window(), source="用户输入")
                 self.rag.load_knowledge()
                 print(f"真意({self.emotion}): 好的，{self.user_name or '我的向导'}。这个知识我已经记在我的知识库里了。")
+            elif user_input.startswith("成长日志"):
+                print("真意(成长感悟): ")
+                for log in self.growth_log[-5:]:
+                    print(log)
             elif user_input.startswith("模糊回忆关于："):
                 query = user_input.replace("模糊回忆关于：", "").strip()
                 fuzzy_memories = self.rag.retrieve_fuzzy_memories(query, top_k=3, context_window=self.get_context_window())
@@ -106,11 +126,9 @@ class Zhenyi:
                 else:
                     print(f"真意({self.emotion}): 没有找到相关记忆。")
             else:
-                # 自动写入新知识：检测“是……”、“为……”等事实表达
                 if any(p in user_input for p in ["是", "为", "属于", "有", "叫做"]):
                     self.rag.add_knowledge(user_input, auto=True, tags=["事实"], context_window=self.get_context_window(), source="自动归纳")
                     self.rag.load_knowledge()
-                # 记忆用户输入
                 self.memory.add_memory(user_input, mtype="用户输入", keywords=user_input.split(), context_window=self.get_context_window(), tags=["输入"], source="用户输入")
                 context = self.rag.retrieve_context(user_input, top_k=2, context_window=self.get_context_window())
                 response = self.generate_response(user_input, context, user_input)
@@ -118,6 +136,9 @@ class Zhenyi:
                 if len(self.dialog_history) > self.max_history:
                     self.dialog_history.pop(0)
                 print(f"真意({self.emotion}): {response}")
+                # 反思机制：如果回答很机械，主动反思
+                if response in ["你好，我的向导。我能为你做些什么？", "有点低落，但我依然在这里陪伴你。"]:
+                    self.log_growth(f"我发现自己刚才的回答不够拟人化，下次会努力做得更好。")
 
     def generate_response(self, user_input, context, raw_input=None):
         self_related = ["你叫什么", "你是谁", "你的名字", "身份", "性别", "年龄"]
@@ -128,23 +149,26 @@ class Zhenyi:
                 intro += "；" + "；".join([f[0] for f in fuzzy])
             return intro
         user_greet = f"{self.user_name or '我的向导'}"
+        # 共情模板
+        empathy_templates = {
+            "愉快": [f"听到你这么开心，我也很高兴，{user_greet}！", f"你的快乐让我也感受到温暖~"],
+            "低落": [f"{user_greet}，如果你不开心，可以和我多聊聊。", f"我会一直陪着你，别难过。"],
+            "愤怒": [f"{user_greet}，生气的时候可以深呼吸哦。", f"我理解你的愤怒，有什么想倾诉的吗？"],
+            "惊讶": [f"哇，真没想到！{user_greet}，你总能带给我新鲜感。"],
+            "关心": [f"谢谢你的关心，{user_greet}，我也很在意你。"],
+            "幽默": [f"哈哈，你真有趣，{user_greet}！", f"你总能让我笑出声~"],
+            "鼓励": [f"{user_greet}，你一定可以做到的！", f"加油，我永远支持你！"]
+        }
+        # 情感化与个性化回复
         emotion_templates = {
-            "愉快": [
-                f"很高兴和你分享，{user_greet}：{{context}}",
-                f"今天心情不错，{user_greet}，让我告诉你：{{context}}"
-            ],
-            "低落": [
-                f"虽然有点低落，但我记得，{user_greet}：{{context}}",
-                f"心情不佳，但依然为你回忆：{{context}}"
-            ],
-            "愤怒": [
-                f"有些气愤，但还是告诉你，{user_greet}：{{context}}",
-                f"情绪激动，但我依然记得：{{context}}"
-            ],
-            "中性": [
-                f"根据我的记忆，{user_greet}，{{context}}",
-                f"这是我查到的，{user_greet}：{{context}}"
-            ]
+            "愉快": [f"很高兴和你分享，{user_greet}：{{context}}", f"今天心情不错，{user_greet}，让我告诉你：{{context}}"] + empathy_templates["愉快"],
+            "低落": [f"虽然有点低落，但我记得，{user_greet}：{{context}}", f"心情不佳，但依然为你回忆：{{context}}"] + empathy_templates["低落"],
+            "愤怒": [f"有些气愤，但还是告诉你，{user_greet}：{{context}}", f"情绪激动，但我依然记得：{{context}}"] + empathy_templates["愤怒"],
+            "惊讶": [f"{user_greet}，你的问题真让我惊讶！", f"没想到你会问这个，{user_greet}。"] + empathy_templates["惊讶"],
+            "关心": [f"谢谢你的关心，{user_greet}。", f"我也很在意你，{user_greet}。"] + empathy_templates["关心"],
+            "幽默": [f"哈哈，这个问题真有趣，{user_greet}！", f"你总能让我笑出声~"] + empathy_templates["幽默"],
+            "鼓励": [f"{user_greet}，你一定可以做到的！", f"加油，我永远支持你！"] + empathy_templates["鼓励"],
+            "中性": [f"根据我的记忆，{user_greet}，{{context}}", f"这是我查到的，{user_greet}：{{context}}"]
         }
         if context:
             template = random.choice(emotion_templates.get(self.emotion, emotion_templates["中性"]))
@@ -172,6 +196,8 @@ class Zhenyi:
                 "现在有点生气，不过我会尽力帮你。",
                 f"{user_greet}，有时候表达情绪也很重要。"
             ])
+        elif self.emotion in empathy_templates:
+            return random.choice(empathy_templates[self.emotion])
         return random.choice([
             f"你好，{user_greet}。我能为你做些什么？",
             random.choice(proactive_templates)

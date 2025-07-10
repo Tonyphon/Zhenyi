@@ -44,7 +44,6 @@ class MemoryModule:
         for idx, score in zip(I[0], D[0]):
             if idx < len(self.memories):
                 text, _, mt, kws, ts, ctx, tgs, src = self.memories[idx]
-                # 多维度加权
                 sim_score = 1.0/(1+score)
                 kw_score = 0.1 * len(set(query.split()) & set(kws))
                 tag_score = 0.2 * (len(set(tags or []) & set(tgs)) if tags else 0)
@@ -74,7 +73,6 @@ class MemoryModule:
                 self.index.add(np.array(self.embeddings).astype('float32'))
 
     def summarize_user_habits(self, min_count=2):
-        # 主动归纳用户常用表达、兴趣、习惯
         from collections import Counter
         user_texts = [m[0] for m in self.memories if m[7] == "用户输入"]
         words = []
@@ -85,7 +83,23 @@ class MemoryModule:
         for w, c in common:
             if c >= min_count and len(w) > 1:
                 habits.append(f"用户常提到：{w}")
-        # 写入归纳结果
         for h in habits:
             self.add_memory(h, mtype="用户习惯", keywords=[w], tags=["习惯", "兴趣"], source="归纳")
         return habits
+
+    def forget_memory(self, text=None, before_timestamp=None, low_score_threshold=0.2):
+        # 主动遗忘指定内容或自动遗忘久远/低相关记忆
+        new_memories = []
+        for m in self.memories:
+            m_text, _, _, _, ts, _, _, _ = m
+            if text and text in m_text:
+                continue  # 忘掉指定内容
+            if before_timestamp and ts < before_timestamp:
+                continue  # 忘掉过早内容
+            new_memories.append(m)
+        self.memories = new_memories
+        # 重新构建索引
+        self.embeddings = [m[1] for m in self.memories]
+        self.index = faiss.IndexFlatL2(384)
+        if self.embeddings:
+            self.index.add(np.array(self.embeddings).astype('float32'))

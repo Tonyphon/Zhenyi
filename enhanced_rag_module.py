@@ -3,6 +3,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import os
+import time
 
 class EnhancedRAGModule:
     def __init__(self, kb_path="knowledge_base.txt"):
@@ -16,6 +17,7 @@ class EnhancedRAGModule:
         self.tags = []
         self.contexts = []
         self.sources = []
+        self.growth_log = []  # 新增：成长日志
         self.load_knowledge()
 
     def load_knowledge(self):
@@ -102,3 +104,21 @@ class EnhancedRAGModule:
                 results.append((text, final_score, list(set(kws) & query_words), tgs, ctx, src))
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
+
+    def log_growth(self, event):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        self.growth_log.append(f"[{ts}] {event}")
+        if len(self.growth_log) > 20:
+            self.growth_log.pop(0)
+
+    def summarize_knowledge(self):
+        # 简单自我归纳知识库内容
+        summary = f"当前知识条目数：{len(self.knowledge)}。主要主题："
+        all_words = []
+        for k in self.knowledge:
+            all_words.extend(k[2])
+        from collections import Counter
+        top_words = [w for w, c in Counter(all_words).most_common(5)]
+        summary += ", ".join(top_words)
+        self.log_growth(f"知识自我归纳：{summary}")
+        return summary
