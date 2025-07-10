@@ -5,6 +5,7 @@ import random
 import time
 import requests
 import re
+from datetime import datetime
 
 # Ollama LLM API 封装
 class OllamaLLM:
@@ -38,6 +39,8 @@ class Zhenyi:
         self.rag = EnhancedRAGModule()
         self.running = True
         self.emotion = "中性"
+        self.energy = 100  # 新增：能量值
+        self.happiness = 50  # 新增：开心值
         self.user_name = None
         self.user_profile = {}
         self.self_profile = {
@@ -53,6 +56,9 @@ class Zhenyi:
         self.habit_update_interval = 60
         self.growth_log = []  # 新增：成长日志
         self.llm = OllamaLLM()
+        self.first_chat_time = datetime.now()
+        self.user_birthday = None
+        self.last_greeted_festival = None
         print("--- 欢迎来到交互界面 ---")
 
     def update_emotion(self, user_input):
@@ -72,6 +78,19 @@ class Zhenyi:
                     self.emotion = emo
                     return
         self.emotion = "中性"
+        # 情绪波动与能量变化
+        if self.emotion == "愉快":
+            self.happiness = min(100, self.happiness + 5)
+            self.energy = min(100, self.energy + 2)
+        elif self.emotion == "低落":
+            self.happiness = max(0, self.happiness - 8)
+            self.energy = max(0, self.energy - 5)
+        elif self.emotion == "愤怒":
+            self.happiness = max(0, self.happiness - 5)
+            self.energy = max(0, self.energy - 3)
+        else:
+            self.happiness = max(0, min(100, self.happiness + random.randint(-1, 1)))
+            self.energy = max(0, min(100, self.energy + random.randint(-1, 1)))
 
     def extract_user_info(self, user_input):
         if user_input.startswith("我是"):
@@ -97,7 +116,36 @@ class Zhenyi:
             self.self_profile["age"] = f"{age}岁"
             self.self_profile["gender"] = "女" if "女" in gender else "男"
             return "哇，被你重新定义啦！以后我就是{}岁的{}{}啦~".format(age, '女生' if '女' in gender else '男生', name)
+        # 检测生日
+        m_birthday = re.match(r"我的生日是(\d{1,2})月(\d{1,2})日", user_input)
+        if m_birthday:
+            month, day = int(m_birthday.group(1)), int(m_birthday.group(2))
+            self.user_birthday = (month, day)
+            return f"记住啦！你的生日是{month}月{day}日，到时候我会记得祝你生日快乐的~"
         return False
+
+    def check_festival(self):
+        # 检查是否节日/生日/纪念日
+        now = datetime.now()
+        festivals = {
+            (1, 1): "元旦",
+            (2, 14): "情人节",
+            (5, 1): "劳动节",
+            (10, 1): "国庆节",
+            (12, 25): "圣诞节"
+        }
+        today = (now.month, now.day)
+        if self.user_birthday and today == self.user_birthday and self.last_greeted_festival != today:
+            self.last_greeted_festival = today
+            return f"今天是你的生日！生日快乐呀{self.user_name or '亲爱的'}！希望你每天都开开心心~🎂"
+        if today in festivals and self.last_greeted_festival != today:
+            self.last_greeted_festival = today
+            return f"{festivals[today]}快乐！{self.user_name or '亲爱的'}，祝你节日愉快，每天都幸福！"
+        # 纪念日（第一次聊天）
+        if today == (self.first_chat_time.month, self.first_chat_time.day) and self.last_greeted_festival != today:
+            self.last_greeted_festival = today
+            return f"今天是我们认识的纪念日哦！很开心能陪伴你这么久~🥳"
+        return None
 
     def get_context_window(self):
         return [x[1] for x in self.dialog_history[-self.max_history:]]
@@ -129,8 +177,12 @@ class Zhenyi:
             if time.time() - self.last_habit_update > self.habit_update_interval:
                 self.memory.summarize_user_habits()
                 self.last_habit_update = time.time()
+            # 节日/生日/纪念日祝福
+            festival_greet = self.check_festival()
+            if festival_greet:
+                print(f"真意(仪式感): {festival_greet}")
             if user_input in ["退出", "exit", "quit"]:
-                print(f"[正在保存 真意 状态... 当前情感：{self.emotion}]")
+                print(f"[正在保存 真意 状态... 当前情感：{self.emotion}] 能量：{self.energy} 开心值：{self.happiness}")
                 self.memory.save_state()
                 self.running = False
                 continue
@@ -140,6 +192,18 @@ class Zhenyi:
                 continue
             elif set_result is True:
                 print(f"真意({self.emotion}): 很高兴认识你，{self.user_name}！")
+                continue
+            elif user_input.startswith("成长档案"):
+                print("真意(成长档案): ")
+                for log in self.growth_log[-10:]:
+                    print(log)
+                continue
+            elif user_input.startswith("讲个冷笑话"):
+                print(f"真意(幽默): {random.choice(self.get_jokes())}")
+                continue
+            # 主动关心/主动提问/主动成长分享
+            if random.random() < 0.15:
+                print(f"真意(主动): {random.choice(self.get_proactive_templates())}")
             elif user_input.startswith("记住："):
                 fact = user_input.replace("记住：", "").strip()
                 self.rag.add_knowledge(fact, tags=["用户输入"], context_window=self.get_context_window(), source="用户输入")
@@ -179,12 +243,12 @@ class Zhenyi:
                 for i in range(len(self.dialog_history)-1):
                     if self.dialog_history[i][0] == "user" and i+1 < len(self.dialog_history) and self.dialog_history[i+1][0] == "zhenyi":
                         history.append((self.dialog_history[i][1], self.dialog_history[i+1][1]))
-                # 系统提示词可包含自我设定、情感、用户画像等
+                # LLM system prompt
                 system_prompt = (
                     f"你是{self.self_profile['name']}，{self.self_profile['identity']}，"
                     f"今年{self.self_profile['age']}，性别{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。"
-                    f"当前情感：{self.emotion}。用户画像：{self.user_profile}。"
-                    f"请用轻松、生活化、俏皮、亲切的语气和用户交流，像朋友一样，偶尔可以用表情符号、网络流行语、撒娇、幽默、卖萌等风格。"
+                    f"当前情感：{self.emotion}，能量：{self.energy}，开心值：{self.happiness}。用户画像：{self.user_profile}。"
+                    f"请用轻松、生活化、俏皮、亲切、幽默、偶尔卖萌、撒娇、冷笑话、主动关心、主动成长、主动提问、仪式感、朋友圈故事等风格和用户交流，像真实朋友一样，有温度、有成长、有小缺点、有自尊。"
                 )
                 response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
                 self.dialog_history.append(("zhenyi", response))
@@ -268,6 +332,26 @@ class Zhenyi:
             f"你好，{user_greet}。我能为你做些什么？",
             random.choice(proactive_templates)
         ])
+
+    def get_jokes(self):
+        return [
+            "为什么程序员喜欢用黑色背景？因为他们怕bug被发现！",
+            "有一天我去买咖啡，结果点成了bug……",
+            "你知道为什么我总是记不住事情吗？因为我的内存不够大啦~",
+            "我想变成一只猫，这样就可以一直卖萌了喵~",
+            "你知道什么动物最爱聊天吗？答：企鹅，因为它有QQ！"
+        ]
+
+    def get_proactive_templates(self):
+        return [
+            f"{self.user_name or '亲爱的'}，今天过得怎么样？有没有什么开心的事？",
+            f"你最近有没有什么小目标呀？我可以帮你一起实现哦~",
+            f"我最近学会了一个新冷笑话，要不要听听？",
+            f"你还记得我们第一次聊天吗？那天我超级紧张呢~",
+            f"如果你有烦恼，可以随时和我说哦，我会一直陪着你！",
+            f"我最近在思考，什么才是幸福呢？你觉得呢？",
+            f"你喜欢什么样的音乐呀？下次可以推荐给我听听！"
+        ]
 
 if __name__ == "__main__":
     zhenyi = Zhenyi()
