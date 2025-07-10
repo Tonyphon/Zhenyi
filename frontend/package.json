@@ -1,0 +1,12 @@
+{
+  "name": "frosted-glass-chatbot",
+  "version": "1.0.0",
+  "main": "main.js",
+  "description": "Standalone Electron chatbot with frosted glass UI",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^29.0.0"
+  }
+}
