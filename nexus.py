@@ -42,6 +42,15 @@ class Zhenyi:
                 fact = user_input.replace("记住：", "").strip()
                 self.rag.add_knowledge(fact)
                 print(f"真意({self.emotion}): 好的，我的向导。这个知识我已经记在我的知识库里了。")
+            elif user_input.startswith("模糊回忆关于："):
+                query = user_input.replace("模糊回忆关于：", "").strip()
+                fuzzy_memories = self.rag.retrieve_fuzzy_memories(query, top_k=3)
+                if fuzzy_memories:
+                    print(f"真意({self.emotion}): 以下是我的模糊相关记忆：")
+                    for i, (text, score, keywords) in enumerate(fuzzy_memories, 1):
+                        print(f"记忆 {i} (相关度: {score:.2f}): \"{text}\" [匹配关键词: {', '.join(keywords)}]")
+                else:
+                    print(f"真意({self.emotion}): 没有找到模糊相关记忆。")
             elif user_input.startswith("回忆关于："):
                 query = user_input.replace("回忆关于：", "").strip()
                 memories = self.memory.retrieve_memories(query)
@@ -52,7 +61,10 @@ class Zhenyi:
                 else:
                     print(f"真意({self.emotion}): 没有找到相关记忆。")
             else:
-                context = self.rag.retrieve_context(user_input)
+                # 自动写入新知识：检测“是……”、“为……”等事实表达
+                if any(p in user_input for p in ["是", "为", "属于", "有", "叫做"]):
+                    self.rag.add_knowledge(user_input, auto=True)
+                context = self.rag.retrieve_context(user_input, top_k=2)
                 response = self.generate_response(user_input, context)
                 print(f"真意({self.emotion}): {response}")
 
