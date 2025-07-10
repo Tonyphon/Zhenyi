@@ -32,7 +32,7 @@ class Zhenyi:
     def run(self):
         while self.running:
             user_input = input("你: ").strip()
-            self.update_emotion(user_input)  # 新增：每次输入后更新情感
+            self.update_emotion(user_input)
             if user_input in ["退出", "exit", "quit"]:
                 print(f"[正在保存 真意 状态... 当前情感：{self.emotion}]")
                 self.memory.save_state()
@@ -41,6 +41,7 @@ class Zhenyi:
             elif user_input.startswith("记住："):
                 fact = user_input.replace("记住：", "").strip()
                 self.rag.add_knowledge(fact)
+                self.rag.load_knowledge()  # 写入后立即reload
                 print(f"真意({self.emotion}): 好的，我的向导。这个知识我已经记在我的知识库里了。")
             elif user_input.startswith("模糊回忆关于："):
                 query = user_input.replace("模糊回忆关于：", "").strip()
@@ -64,11 +65,18 @@ class Zhenyi:
                 # 自动写入新知识：检测“是……”、“为……”等事实表达
                 if any(p in user_input for p in ["是", "为", "属于", "有", "叫做"]):
                     self.rag.add_knowledge(user_input, auto=True)
+                    self.rag.load_knowledge()  # 自动写入后reload
                 context = self.rag.retrieve_context(user_input, top_k=2)
-                response = self.generate_response(user_input, context)
+                response = self.generate_response(user_input, context, user_input)
                 print(f"真意({self.emotion}): {response}")
 
-    def generate_response(self, user_input, context):
+    def generate_response(self, user_input, context, raw_input=None):
+        # 优先检索自我相关知识
+        self_related = ["你叫什么", "你是谁", "你的名字", "身份", "性别", "年龄"]
+        if any(key in (raw_input or user_input) for key in self_related):
+            fuzzy = self.rag.retrieve_fuzzy_memories("真意", top_k=3)
+            if fuzzy:
+                return "；".join([f[0] for f in fuzzy])
         # 情感化回复示例
         if context:
             if self.emotion == "愉快":
@@ -79,6 +87,10 @@ class Zhenyi:
                 return f"有些气愤，但还是告诉你：{context}"
             else:
                 return f"根据我的记忆，{context}"
+        # 无上下文时尝试模糊检索
+        fuzzy = self.rag.retrieve_fuzzy_memories(user_input, top_k=1)
+        if fuzzy:
+            return f"我模糊记得：{fuzzy[0][0]}"
         # 无上下文时的情感化欢迎语
         if self.emotion == "愉快":
             return "你好呀！今天感觉很棒，有什么可以帮你的吗？"
