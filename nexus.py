@@ -4,6 +4,7 @@ from enhanced_rag_module import EnhancedRAGModule
 import random
 import time
 import requests
+import re
 
 # Ollama LLM API 封装
 class OllamaLLM:
@@ -87,6 +88,15 @@ class Zhenyi:
                 self.user_profile["name"] = name
                 self.memory.add_memory(f"用户名字是{name}", mtype="用户信息", keywords=["名字", name], source="用户输入")
                 return True
+        # 检测用户主动设定自我身份
+        # 例：“你叫真意，21岁，是个女生”
+        m = re.match(r"你叫([\w\u4e00-\u9fa5]+)[,， ]*(\d+)岁[，, ]*是个?(男生|女生|男|女)", user_input)
+        if m:
+            name, age, gender = m.group(1), m.group(2), m.group(3)
+            self.self_profile["name"] = name
+            self.self_profile["age"] = f"{age}岁"
+            self.self_profile["gender"] = "女" if "女" in gender else "男"
+            return "哇，被你重新定义啦！以后我就是{}岁的{}{}啦~".format(age, '女生' if '女' in gender else '男生', name)
         return False
 
     def get_context_window(self):
@@ -124,7 +134,11 @@ class Zhenyi:
                 self.memory.save_state()
                 self.running = False
                 continue
-            elif self.extract_user_info(user_input):
+            set_result = self.extract_user_info(user_input)
+            if set_result is not False and set_result is not True:
+                print(f"真意({self.emotion}): {set_result}")
+                continue
+            elif set_result is True:
                 print(f"真意({self.emotion}): 很高兴认识你，{self.user_name}！")
             elif user_input.startswith("记住："):
                 fact = user_input.replace("记住：", "").strip()
@@ -166,7 +180,12 @@ class Zhenyi:
                     if self.dialog_history[i][0] == "user" and i+1 < len(self.dialog_history) and self.dialog_history[i+1][0] == "zhenyi":
                         history.append((self.dialog_history[i][1], self.dialog_history[i+1][1]))
                 # 系统提示词可包含自我设定、情感、用户画像等
-                system_prompt = f"你是{self.self_profile['name']}，{self.self_profile['identity']}，性格{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。当前情感：{self.emotion}。用户画像：{self.user_profile}。请用自然、拟人化、共情的语气回答。"
+                system_prompt = (
+                    f"你是{self.self_profile['name']}，{self.self_profile['identity']}，"
+                    f"今年{self.self_profile['age']}，性别{self.self_profile['gender']}，兴趣{self.self_profile['hobby']}。"
+                    f"当前情感：{self.emotion}。用户画像：{self.user_profile}。"
+                    f"请用轻松、生活化、俏皮、亲切的语气和用户交流，像朋友一样，偶尔可以用表情符号、网络流行语、撒娇、幽默、卖萌等风格。"
+                )
                 response = self.llm.generate(user_input, system_prompt=system_prompt, history=history)
                 self.dialog_history.append(("zhenyi", response))
                 if len(self.dialog_history) > self.max_history:
@@ -177,8 +196,19 @@ class Zhenyi:
                     self.log_growth(f"我发现自己刚才的回答不够拟人化，下次会努力做得更好。")
 
     def generate_response(self, user_input, context, raw_input=None):
-        self_related = ["你叫什么", "你是谁", "你的名字", "身份", "性别", "年龄"]
+        self_related = ["你叫什么", "你是谁", "你的名字", "身份", "性别", "年龄", "你几岁"]
         if any(key in (raw_input or user_input) for key in self_related):
+            # 口语化幽默模板
+            if "几岁" in user_input or "年龄" in user_input:
+                return random.choice([
+                    f"你猜猜看嘛，其实我永远18岁啦~ (偷偷告诉你，其实我是{self.self_profile['age']})",
+                    f"我嘛，{self.self_profile['age']}，不过心态永远年轻！^_^"
+                ])
+            if "名字" in user_input or "你是谁" in user_input:
+                return random.choice([
+                    f"我叫{self.self_profile['name']}，不过你也可以给我起个小名呀！:P",
+                    f"大家都叫我{self.self_profile['name']}，你喜欢这个名字吗？"
+                ])
             intro = f"我是{self.self_profile['name']}，{self.self_profile['identity']}，{self.self_profile['age']}，{self.self_profile['gender']}。我喜欢{self.self_profile['hobby']}。"
             fuzzy = self.rag.retrieve_fuzzy_memories("真意", top_k=3, context_window=self.get_context_window())
             if fuzzy:
